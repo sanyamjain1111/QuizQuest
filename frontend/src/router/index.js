@@ -20,6 +20,7 @@ import QuestionFormComponent from '../components/QuestionFormComponent.vue' // I
 import AdminPersonalDetailsComponent from '../components/AdminPersonalDetailsComponent.vue' // Import AdminPersonalDetailsComponent
 import AdminAcademicDetailsComponent from '../components/AdminAcademicDetailsComponent.vue' // Import AdminAcademicDetailsComponent
 import TranscriptComponent from '../components/TranscriptComponent.vue' // Import TranscriptComponent
+import AdminExportComponent from '../components/AdminExportComponent.vue' // Import AdminExportComponent
 
 // Route Guard function to check if user is logged in
 const requireAuth = (to, from, next) => {
@@ -182,6 +183,12 @@ const routes = [
     component: AdminPersonalDetailsComponent,
     beforeEnter: requireadminAuth
   },
+  {
+    path: '/adminexport',
+    name: 'AdminExport', 
+    component: AdminExportComponent, // Assuming you have an AdminExportComponent
+    beforeEnter: requireadminAuth
+    },
   {
     path: '/academic_details',
     name: 'AcademicDetails',

@@ -7,10 +7,12 @@ from flask_cors import CORS
 from flask_mail import Mail
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from datetime import timedelta
-
+from celery_app import make_celery,celery
+from flask_caching import Cache
 # Initialize app components
 app = None
 mail = Mail()
+cache=Cache()
 # Initialize JWT Manager
 jwt = JWTManager()
 
@@ -43,6 +45,7 @@ def create_app():
     app.config['JWT_SECRET_KEY'] = 'jain1234'  # Change this to a secure random key
     jwt.init_app(app)
     mail.init_app(app)
+    cache.init_app(app)
  
     return app
 
@@ -52,6 +55,10 @@ app = create_app()
 # Create all database tables
 with app.app_context():
     db.create_all()
+app.config.from_object('application.config.Config')
+configured_celery = make_celery(app)
+celery.conf.update(configured_celery.conf)
+celery.Task = configured_celery.Task
 
 # Import controllers after app is created to avoid circular imports
 from application.controllers import *

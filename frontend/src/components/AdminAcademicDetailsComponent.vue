@@ -7,6 +7,7 @@
     </div>
     
     <div class="main-content">
+    
       <!-- Filter options -->
       <div class="filter-container">
         <div class="filter-dropdown">
@@ -16,6 +17,8 @@
             <option v-for="userId in uniqueUserIds" :key="userId" :value="userId">User ID: {{ userId }}</option>
           </select>
         </div>
+          <AdminExportComponent />
+
       </div>
 
       <!-- Alert messages -->
@@ -118,13 +121,15 @@
 
 <script>
 import AdminNavbarComponent from './AdminNavbarComponent.vue';
+import AdminExportComponent from './AdminExportComponent.vue';
 import api from '@/services/api';
 import Chart from 'chart.js/auto';
 
 export default {
   name: 'AdminAcademicDetailsComponent',
   components: {
-    AdminNavbarComponent
+    AdminNavbarComponent,
+    AdminExportComponent
   },
   data() {
     return {
@@ -452,6 +457,7 @@ export default {
 }
 
 /* Filter styles */
+/* Filter styles - Updated */
 .filter-container {
   margin-bottom: 1.5rem;
   background: white;
@@ -459,12 +465,17 @@ export default {
   border-radius: 10px;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
   border: 1px solid rgba(91, 192, 190, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
 }
 
 .filter-dropdown {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex: 1;
 }
 
 .filter-dropdown label {
@@ -530,7 +541,9 @@ export default {
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   margin-bottom: 2rem;
 }
-
+.main-content > .export-section {
+  margin-bottom: 1.5rem;
+}
 .table-container:hover {
   transform: translateY(-5px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);

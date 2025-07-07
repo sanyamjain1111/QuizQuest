@@ -10,9 +10,11 @@
       <!-- Content when quiz data is available -->
       <div v-if="quizdetails.length > 0" class="academic-content">
         <div class="stats-header">
-          <h2 class="stats-title">Quiz Performance History</h2>
+          <h2 class="stats-title">Quiz Performance History 
+</h2>
+          <UserExportComponent />
         </div>
-        
+       
         <div class="charts-container">
           <div class="chart-card">
             <div class="chart-header">
@@ -97,12 +99,14 @@
 <script>
 import axios from 'axios';
 import NavbarComponent from './NavbarComponent.vue';
+import UserExportComponent from './UserExportComponent.vue';
 import Chart from 'chart.js/auto';
 
 export default {
   name: 'AcademicDetailsComponent',
   components: {
-    NavbarComponent
+    NavbarComponent,
+    UserExportComponent
   },
   data() {
     return {
@@ -405,20 +409,14 @@ export default {
   padding: 1.5rem;
   border-radius: 12px;
   position: relative;
-  overflow: hidden;
   margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
 }
 
-.stats-header:before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(91, 192, 190, 0.2) 0%, rgba(91, 192, 190, 0) 70%);
-  z-index: 1;
-}
+
 
 .stats-title {
   color: white;

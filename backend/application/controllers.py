@@ -10,10 +10,13 @@ from sqlalchemy import text
 from sqlalchemy.engine import ResultProxy
 from datetime import datetime, date, timedelta
 from flask_mail import Message
-from main import app, mail
+from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
+from main import app, mail, celery
 import hashlib
 from flask_cors import CORS
 from flask_jwt_extended import jwt_required, get_jwt_identity, create_access_token
+from tasks import export_admin_users_data, export_user_quiz_data
+from application.cache_decorators import cached, invalidate_cache
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 def allowed_file(filename):
@@ -42,13 +45,31 @@ def login1():
     existing_user = db.session.query(User).filter_by(username=username).first()
     if existing_user:
         return jsonify({"error": "Account already exists."}), 400
-    else:
+    
+    try:
+        # Create new user
         new_user = User(username=username, fullname=fullname, dob=dob, qualification=qualification, password=password)
-        new_file=  File(uid=new_user.uid, file_url='/static/upload/user.png')
+        db.session.add(new_user)
+        db.session.flush()  # This assigns the uid to new_user
+        
+        # Now you can use new_user.uid safely
+        new_file = File(uid=new_user.uid, file_url='/static/upload/user.png')
+        new_reminder = Reminder(uid=new_user.uid, reminder='morning')  # Default reminder
+        
         db.session.add(new_file)
-        db.session.add(new_user)  
+        db.session.add(new_reminder)
+        
+        # Commit all changes
         db.session.commit()
-        return jsonify({"message": "User registered successfully"}), 201
+        
+        return jsonify({
+            "message": "User registered successfully", 
+            "uid": new_user.uid
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Registration failed: " + str(e)}), 500
 
 @app.route("/api/admin", methods=["GET", "POST"])
 def admin():
@@ -359,6 +380,7 @@ def adminhome():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/subjects", methods=["GET", "POST"])
+@cached(timeout=3600)
 def subjects():
     result = db.session.execute(text("SELECT * FROM subjects "))
     result2 = db.session.execute(text("SELECT * FROM chapters "))
@@ -373,6 +395,7 @@ def subjects():
     }), 200
 
 @app.route("/api/chapters", methods=["GET", "POST"])
+@cached(timeout=3600)
 def chapters():
     result = db.session.execute(text("SELECT * FROM subjects "))
     result2 = db.session.execute(text("SELECT * FROM chapters "))
@@ -387,6 +410,7 @@ def chapters():
     }), 200
 
 @app.route("/api/questions", methods=["GET", "POST"])
+@cached(timeout=3600)
 def questions():
     try:
         result = db.session.execute(text("SELECT * FROM subjects"))
@@ -524,7 +548,7 @@ def editcomplete():
     new_username = request.json.get("username")
     new_dob = request.json.get("dob")
     new_qualification = request.json.get("qualification")
-    new_name = request.json.get("name")
+    new_name = request.json.get("fullname")
     new_password = request.json.get("password1")
     password = request.json.get("password")
     
@@ -551,9 +575,10 @@ def editcomplete():
         updates['qualification'] = new_qualification
     if new_name:
         updates['fullname'] = new_name
+        print(new_name)
     if new_password:
         updates['password'] = new_password
-    
+    print(updates)
     if not updates:
         return jsonify({"message": "No changes requested"}), 200
         
@@ -838,6 +863,7 @@ def edit_subject_complete(subject_id):
 
 @app.route("/api/addcomplete/", methods=["GET", "POST"])
 @jwt_required()
+@invalidate_cache('subjects')
 def addcomplete():
     new_subject = request.form.get("subject")
     new_description = request.form.get("description")
@@ -875,13 +901,44 @@ def addcompletequiz():
     if not date or not chapter_id or not duration:
         return jsonify({"error": "Fill the required field"}), 400
     
-    new_quiz = QuizDetails(quiz_date=date, duration=duration, chapter_id=chapter_id)
-    db.session.add(new_quiz)
-    db.session.commit()
-    return jsonify({"message": "Quiz added successfully", "quiz_id": new_quiz.quizid}), 201
+    try:
+        # Create new quiz
+        new_quiz = QuizDetails(quiz_date=date, duration=duration, chapter_id=chapter_id)
+        db.session.add(new_quiz)
+        db.session.flush()  # This will assign the quiz ID without committing
+        
+        # Get all users
+        all_users = User.query.all()
+        
+        # Create viewed entries for all users with the new quiz
+        viewed_entries = []
+        for user in all_users:
+            viewed_entry = Viewed(
+                uid=user.uid,
+                quizid=new_quiz.quizid,
+                viewed=0  # Default value
+            )
+            viewed_entries.append(viewed_entry)
+        
+        # Add all viewed entries to the session
+        db.session.add_all(viewed_entries)
+        
+        # Commit all changes
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Quiz added successfully and all users added to viewed table",
+            "quiz_id": new_quiz.quizid,
+            "users_added": len(viewed_entries)
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "Failed to add quiz: " + str(e)}), 500
 
 @app.route("/api/addcompletech/", methods=["GET", "POST"])
 @jwt_required()
+@invalidate_cache('chapters')
 def addcompletech():
     new_chapter = request.form.get("chapter")
     sub_id = request.form.get("sub_id")
@@ -912,6 +969,7 @@ def addquestion():
 
 @app.route("/api/addcompleteque", methods=["POST"])
 @jwt_required()
+@invalidate_cache('questions')
 def addcompletequestion():
     question_text = request.form.get("question_text")
     chapter_id = request.form.get("chapter_id")
@@ -1034,6 +1092,7 @@ def delete_user(userid):
         db.session.execute(text("delete from quizresponse where uid=:uid"), {"uid": userid})
         db.session.execute(text("delete from user where uid=:uid"), {"uid": userid})
         db.session.execute(text("delete from File where uid=:uid"), {"uid": userid})
+        db.session.execute(text("delete from viewed where uid=:uid"), {"uid": userid})
         db.session.commit()
         return jsonify({"message": "User deleted successfully"}), 200
     except Exception as e:
@@ -1047,6 +1106,7 @@ def logout():
 
 @app.route('/api/user/<fullname>', methods=['GET', 'POST'])
 @jwt_required()
+@cached(key_prefix='user_profile_', timeout=1800)
 def user_profile(fullname):
     result = db.session.execute(text("SELECT * FROM subjects"))
     result2 = db.session.execute(text("SELECT * FROM chapters"))
@@ -1310,3 +1370,128 @@ def transcript(quiz_id, uid):
         "options": options,
         "quizresponses": quizresponses
     }), 200
+@app.route('/api/export/user-quizzes', methods=['POST'])
+@jwt_required()
+def trigger_user_export():
+    """Trigger CSV export for current user's quiz data."""
+    try:
+        # Get current user ID (adjust based on your auth implementation)
+        username = get_jwt_identity()
+        print(username)
+        
+        query = text("""
+        SELECT uid
+        FROM user
+        WHERE username = :username
+        """)
+        result = db.session.execute(query, {"username": username}).fetchone()
+        
+        if result:
+            uid = result[0]
+        else:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Trigger the async task
+        task = export_user_quiz_data.delay(uid)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Export started. You will receive an email once completed.',
+            'task_id': task.id
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/export/admin-users', methods=['POST'])
+@jwt_required()
+def trigger_admin_export():
+    """Trigger CSV export for all users' performance data (Admin only)."""
+    try:
+        print("=== ADMIN EXPORT ROUTE HIT ===")  # Debug log
+        
+        # Check if user is admin
+        # Trigger the async task
+        task = export_admin_users_data.delay()
+        print(f"Task created with ID: {task.id}")  # Debug log
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Export started. You will receive an email once completed.',
+            'task_id': task.id
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in admin export: {str(e)}")  # Debug log
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    
+@app.route('/api/task-status/<task_id>', methods=['GET'])
+@jwt_required()
+def get_task_status(task_id):
+    """Get the status of a Celery task."""
+    try:
+        from celery.result import AsyncResult
+        from main import celery  # Import your celery instance
+        
+        task = AsyncResult(task_id, app=celery)
+        
+        if task.state == 'PENDING':
+            response = {
+                'status': 'pending',
+                'message': 'Task is waiting to be processed...'
+            }
+        elif task.state == 'PROGRESS':
+            response = {
+                'status': 'in_progress',
+                'message': task.info.get('message', 'Task is being processed...')
+            }
+        elif task.state == 'SUCCESS':
+            response = {
+                'status': 'completed',
+                'message': 'Task completed successfully!',
+                'result': task.info
+            }
+        else:  # FAILURE
+            response = {
+                'status': 'failed',
+                'message': str(task.info)
+            }
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+@app.route('/api/viewed/<quizid>', methods=['GET', 'POST'])
+@jwt_required()
+def viewed(quizid):
+    """Mark a quiz as viewed for the current user."""
+    username = get_jwt_identity()
+    
+    # Get user ID from username
+    user_query = text("SELECT uid FROM user WHERE username = :username")
+    user_result = db.session.execute(user_query, {"username": username}).fetchone()
+    
+    if not user_result:
+        return jsonify({"error": "User not found"}), 404
+    
+    user_id = user_result[0]
+    
+    # Check if the quiz has already been viewed by this user
+    existing_viewed = db.session.execute(
+        text("SELECT viewed FROM viewed WHERE uid = :uid AND quizid = :quizid"),
+        {"uid": user_id, "quizid": quizid}
+    ).fetchone()
+    
+    if existing_viewed[0] == 1:
+        return jsonify({"message": "Quiz already viewed"}), 200
+    
+    # Mark the quiz as viewed
+    db.session.execute(text("delete from viewed where uid=:uid"), {"uid": user_id})
+    db.session.commit()
+    new_viewed = Viewed(uid=user_id, quizid=quizid, viewed=1)
+    db.session.add(new_viewed)
+    db.session.commit()
+    
+    return jsonify({"message": "Quiz marked as viewed"}), 200

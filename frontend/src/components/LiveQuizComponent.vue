@@ -186,7 +186,8 @@ export default {
         }
       }
     },
-    setModalData(quiz, index) {
+    async setModalData(quiz, index) {
+      // Set modal data first
       this.modalData = {
         quizid: quiz.quizid,
         chapter_name: this.listForQuiz[index].chapter_name,
@@ -195,9 +196,39 @@ export default {
         quiz_date: quiz.quiz_date,
         duration: quiz.duration
       };
+      
+      // Show modal
       this.showModal = true;
+      
       // Prevent body scrolling when modal is open
       document.body.style.overflow = 'hidden';
+      
+      // Send hidden API request to mark quiz as viewed
+      await this.markQuizAsViewed(quiz.quizid);
+    },
+    async markQuizAsViewed(quizId) {
+      try {
+        const response = await axios.post(`/api/viewed/${quizId}`, {}, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        console.log('Quiz marked as viewed:', response.data.message);
+      } catch (error) {
+        // Handle the error silently in background, or show a subtle notification
+        console.error('Error marking quiz as viewed:', error);
+        
+        // Optional: Handle specific error cases
+        if (error.response?.status === 401) {
+          // Token expired, redirect to login
+          this.$router.push('/');
+        } else if (error.response?.status === 404) {
+          console.warn('User not found');
+        } else if (error.response?.status === 200 && error.response?.data?.message === "Quiz already viewed") {
+          console.log('Quiz was already viewed by this user');
+        }
+      }
     },
     closeModal() {
       this.showModal = false;

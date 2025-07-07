@@ -1268,7 +1268,7 @@ export default {
   
   .modal-details-grid {
     grid-template-columns: 1fr;
-  }
+  } 
   
   .modal-profile-section {
     flex-direction: column;

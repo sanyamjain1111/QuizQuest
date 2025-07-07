@@ -1,0 +1,8 @@
+cd backend 
+wsl redis-server --port 6380 --protected-mode no
+python main.py
+python -m celery -A main.celery worker --loglevel=info --pool=solo
+python -m celery -A main.celery beat --loglevel=debug
+
+cd frontend
+npm run serve

@@ -3,7 +3,7 @@ from application.models import Reminder  # Import your existing Reminder model
 from application.database import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import text
-
+from tasks import  send_monthly_reports
 # Create the blueprint
 reminder_bp = Blueprint('reminder', __name__, url_prefix='/api/reminders')
 
@@ -104,3 +104,14 @@ def disable_reminders():
         return jsonify({"message": "Reminders disabled successfully"})
     else:
         return jsonify({"message": "No reminder preferences found to disable"})
+
+
+@reminder_bp.route('/test/monthly', methods=['POST'])
+def trigger_monthly_reports():
+    """Admin endpoint to test monthly reports"""
+    result = send_monthly_reports.delay()
+    return jsonify({
+        "status": "success",
+        "message": "Monthly reports task queued", 
+        "task_id": result.id
+    }), 202

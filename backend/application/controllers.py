@@ -763,7 +763,7 @@ def edit_question(question_id):
             return jsonify({"error": "Question not found"}), 404
             
         options_result = db.session.execute(
-            text("SELECT option_id, `option` FROM options WHERE question_id = :question_id"),
+            text('SELECT option_id, "option" FROM options WHERE question_id = :question_id'),
             {"question_id": question_id}
         ).fetchall()
         
@@ -805,7 +805,7 @@ def editcompleteque(question_id):
             db.session.execute(
                 text("""
                     UPDATE options
-                    SET `option` = :new_option
+                    SET "option" = :new_option
                     WHERE question_id = :question_id AND option_id = :option_id
                 """),
                 {
